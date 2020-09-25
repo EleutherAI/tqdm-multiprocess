@@ -1,0 +1,5 @@
+*.log
+.vs*
+tqdm-multiprocess.pyproj
+tqdm-multiprocess.sln
+__pycache__*
