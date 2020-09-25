@@ -56,7 +56,7 @@ def task_wrapper(logging_queue, tqdm_queue, operation, *args):
     tqdm_partial = partial(get_multi_tqdm, tqdm_queue, tqdms_list)
     return operation(*args, tqdm_partial)
 
-class TqdmMultiProcess(object):
+class TqdmMultiProcessPool(object):
     def __init__(self):
         pass
 
@@ -179,7 +179,7 @@ def error_callback():
     print("Error!")
 
 def example():
-    pool = TqdmMultiProcess()
+    pool = TqdmMultiProcessPool()
     process_count = 4
     task_count = 10
     initial_tasks = [(example_multiprocessing_function, (i,)) for i in range(task_count)]    
