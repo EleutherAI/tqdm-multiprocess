@@ -56,7 +56,7 @@ def task_wrapper(logging_queue, tqdm_queue, operation, *args):
     tqdm_partial = partial(get_multi_tqdm, tqdm_queue, tqdms_list)
     return operation(*args, tqdm_partial)
 
-class BestMultiProcessing(object):
+class TqdmMultiProcess(object):
     def __init__(self):
         pass
 
@@ -118,13 +118,13 @@ class BestMultiProcessing(object):
 
             try:
                 while True:
-                    tqdm_message = tqdm_queue.get_nowait()
+                    tqdm_id, tqdm_message = tqdm_queue.get_nowait()
                     process_id, method_name, args, kwargs = tqdm_message
                     process_id = int(process_id[-1]) - 1
                     if method_name == "__init__":
-                        tqdms[process_id] = tqdm.tqdm(*args, **kwargs)
+                        tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
                     else:
-                        getattr(tqdms[process_id], method_name)(*args, **kwargs)
+                        getattr(tqdms[process_id][tqdm_id], method_name)(*args, **kwargs)
             except (EmptyQueue, InterruptedError):
                 pass
 
@@ -167,7 +167,6 @@ def some_other_function(tqdm_func):
     logger.warning(f"Warning test message. {multiprocessing.current_process().name}")
     logger.error(f"Error test message. {multiprocessing.current_process().name}")
 
-#some_other_function(tqdm.tqdm)
         
 # Multiprocessed
 def example_multiprocessing_function(some_input, tqdm_func):  
@@ -180,15 +179,15 @@ def error_callback():
     print("Error!")
 
 def example():
-    best_multiprocessing = BestMultiProcessing()
+    pool = TqdmMultiProcess()
     process_count = 4
     task_count = 10
     initial_tasks = [(example_multiprocessing_function, (i,)) for i in range(task_count)]    
-    results = best_multiprocessing.map(process_count, initial_tasks, error_callback)
+    results = pool.map(process_count, initial_tasks, error_callback)
     print(results)
 
 if __name__ == '__main__':
-    logfile_path = "multiprocessing_example.log"
+    logfile_path = "tqdm_multiprocessing_example.log"
     setup_logger_tqdm(logfile_path) # Logger will write messages using tqdm.write
     example() 
 
