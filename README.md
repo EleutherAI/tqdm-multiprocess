@@ -5,7 +5,7 @@ It also redirects logging from the subprocesses to the root logger in the main p
 
 Currently doesn't support tqdm(iterator), you will need to intialize tqdm with a total and update manually.
 
-Due to the performance limits of the default Python multiprocess queue you need to update your process tqdms infrequently to avoid flooding the main process. I will attempt to implement a lock free ringbuffer at some point to address this.
+Due to the performance limits of the default Python multiprocess queue you need to update your worker process tqdms infrequently to avoid flooding the main process. I will attempt to implement a lock free ringbuffer at some point to address this.
 
 ## Installation
 
