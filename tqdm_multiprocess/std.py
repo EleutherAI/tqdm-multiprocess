@@ -32,8 +32,15 @@ class MultiProcessTqdm(object):
             self.message_queue.put((self.tqdm_id, message))
         return _missing
 
+class GlobalMultiProcessTqdm(MultiProcessTqdm):
+    # We don't want to init so no message is passed. Also the id is not applicable. 
+    def __init__(self, message_queue):
+        self.message_queue = message_queue
+        self.tqdm_id = 0
+
 def get_multi_tqdm(message_queue, tqdms_list, *args, **kwargs):
     tqdm_id = len(tqdms_list)
+    kwargs["mininterval"] = 1 # Slow it down
     multi_tqdm = MultiProcessTqdm(message_queue, tqdm_id, *args, **kwargs)
     tqdms_list.append(multi_tqdm)
     return multi_tqdm
@@ -50,21 +57,23 @@ def init_worker(logging_queue):
     setup_logger_child_process(logging_queue)    
     signal.signal(SIGINT, SIG_IGN)
 
-def task_wrapper(tqdm_queue, operation, *args):
+def task_wrapper(tqdm_queue, global_tqdm_queue, operation, *args):
     tqdms_list = []
     tqdm_partial = partial(get_multi_tqdm, tqdm_queue, tqdms_list)
-    return operation(*args, tqdm_partial)
+    global_tqdm = GlobalMultiProcessTqdm(global_tqdm_queue)
+    return operation(*args, tqdm_partial, global_tqdm)
 
 class TqdmMultiProcessPool(object):
     def __init__(self):
         pass
 
-    def map(self, process_count, initial_tasks, on_error):
+    def map(self, process_count, global_tqdm, initial_tasks, on_error, on_done):
         previous_signal_int = signal.signal(SIGINT, handler)
 
         m = multiprocessing.Manager()
         logging_queue = m.Queue()
         tqdm_queue = m.Queue()
+        global_tqdm_queue = m.Queue()
 
         worker_init_function = partial(init_worker, logging_queue)
         with multiprocessing.Pool(process_count, worker_init_function) as pool:
@@ -72,33 +81,46 @@ class TqdmMultiProcessPool(object):
 
             async_results = []
             for operation, args in initial_tasks:
-                wrapper_args = tuple([tqdm_queue, operation] + list(args))
+                wrapper_args = tuple([tqdm_queue, global_tqdm_queue, operation] + list(args))
                 async_results.append(pool.apply_async(task_wrapper, wrapper_args))
 
             completion_status = [False for _ in async_results]
             countdown = len(completion_status)
             task_results = []
             while countdown > 0 and not terminate:
+                # Worker Logging
                 try:
                     logger_record = logging_queue.get_nowait()
                     getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
                 except (EmptyQueue, InterruptedError):
                     pass
 
+                # Worker tqdms
                 try:
-                    tqdm_id, tqdm_message = tqdm_queue.get_nowait()
-                    process_id, method_name, args, kwargs = tqdm_message
-                    process_id = int(process_id[-1])
-                    if process_id not in tqdms:
-                        tqdms[process_id] = {}
+                    while True:
+                        tqdm_id, tqdm_message = tqdm_queue.get_nowait()
+                        process_id, method_name, args, kwargs = tqdm_message
+                        process_id = int(process_id[-1])
+                        if process_id not in tqdms:
+                            tqdms[process_id] = {}
 
-                    if method_name == "__init__":
-                        tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
-                    else:
-                        getattr(tqdms[process_id][tqdm_id], method_name)(*args, **kwargs)
+                        if method_name == "__init__":
+                            tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
+                        else:
+                            getattr(tqdms[process_id][tqdm_id], method_name)(*args, **kwargs)
                 except (EmptyQueue, InterruptedError):
                     pass
 
+                # Global tqdm
+                try:
+                    while True:
+                        tqdm_id, tqdm_message = global_tqdm_queue.get_nowait()
+                        process_id, method_name, args, kwargs = tqdm_message
+                        getattr(global_tqdm, method_name)(*args, **kwargs)
+                except (EmptyQueue, InterruptedError):
+                    pass
+
+                # Task Completion
                 for i, async_result in enumerate(async_results):
                     if completion_status[i]:
                         continue
@@ -111,6 +133,8 @@ class TqdmMultiProcessPool(object):
                         # Task failed, do on_error
                         if not task_result:
                             on_error()
+
+                        on_done()
 
         if terminate:
             logger.info('SIGINT or CTRL-C detected, killing pool. Please wait.')
@@ -125,6 +149,14 @@ class TqdmMultiProcessPool(object):
         except (EmptyQueue, InterruptedError):
             pass
         except Exception:
+            pass
+
+        try:
+            while True:
+                tqdm_id, tqdm_message = global_tqdm_queue.get_nowait()
+                process_id, method_name, args, kwargs = tqdm_message
+                getattr(global_tqdm, method_name)(*args, **kwargs)
+        except (EmptyQueue, InterruptedError):
             pass
 
         try:
