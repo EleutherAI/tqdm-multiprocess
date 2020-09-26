@@ -23,7 +23,7 @@ with io_open(requirements_dev, mode='r') as fd:
 
 setuptools.setup(
     name="tqdm-multiprocess",
-    version="0.0.1",
+    version="0.0.4",
     author="researcher2",
     author_email="2researcher2@gmail.com",
     description="Easy multiprocessing with tqdm and logging redirected to main process.",

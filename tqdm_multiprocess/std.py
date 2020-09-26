@@ -81,7 +81,6 @@ class TqdmMultiProcessPool(object):
             while countdown > 0 and not terminate:
                 try:
                     logger_record = logging_queue.get_nowait()
-                    # print(logger_record)
                     getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
                 except (EmptyQueue, InterruptedError):
                     pass
@@ -114,7 +113,7 @@ class TqdmMultiProcessPool(object):
                             on_error()
 
         if terminate:
-            logger.info('\nSIGINT or CTRL-C detected, killing pool. Please wait.')
+            logger.info('SIGINT or CTRL-C detected, killing pool. Please wait.')
 
         # Clear out remaining message queues. Sometimes get_nowait returns garbage
         # without erroring, just catching all exceptions as we don't care that much
@@ -122,12 +121,11 @@ class TqdmMultiProcessPool(object):
         try:
             while True:
                 logger_record = logging_queue.get_nowait()
-                print(logger_record)
                 getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
         except (EmptyQueue, InterruptedError):
             pass
-        except Exception as ex:
-            print(ex)
+        except Exception:
+            pass
 
         try:
             while True:
@@ -143,7 +141,7 @@ class TqdmMultiProcessPool(object):
             pass
 
         if terminate:
-            logger.info('\nTerminating.')            
+            logger.info('Terminating.')            
             for key, process_tqdms in tqdms.items():
                 for key, tqdm_instance in process_tqdms.items():
                     if tqdm_instance:
