@@ -46,12 +46,12 @@ def handler(signal_received, frame):
 # Signal handling for multiprocess. The "correct" answer doesn't work on windows at all.
 # Using the version with a very slight race condition. Don't ctrl-c in that miniscule time window...
 # https://stackoverflow.com/questions/11312525/catch-ctrlc-sigint-and-exit-multiprocesses-gracefully-in-python
-def init_worker():
+def init_worker(logging_queue):
+    setup_logger_child_process(logging_queue)    
     signal.signal(SIGINT, SIG_IGN)
 
-def task_wrapper(logging_queue, tqdm_queue, operation, *args):
+def task_wrapper(tqdm_queue, operation, *args):
     tqdms_list = []
-    setup_logger_child_process(logging_queue)
     tqdm_partial = partial(get_multi_tqdm, tqdm_queue, tqdms_list)
     return operation(*args, tqdm_partial)
 
@@ -61,16 +61,18 @@ class TqdmMultiProcessPool(object):
 
     def map(self, process_count, initial_tasks, on_error):
         previous_signal_int = signal.signal(SIGINT, handler)
-        with multiprocessing.Pool(process_count, init_worker) as pool:
-            tqdms = [{} for _ in range(process_count)]
 
-            m = multiprocessing.Manager()
-            logging_queue = m.Queue()
-            tqdm_queue = m.Queue()
+        m = multiprocessing.Manager()
+        logging_queue = m.Queue()
+        tqdm_queue = m.Queue()
+
+        worker_init_function = partial(init_worker, logging_queue)
+        with multiprocessing.Pool(process_count, worker_init_function) as pool:
+            tqdms = {} # {} for _ in range(process_count)]
 
             async_results = []
             for operation, args in initial_tasks:
-                wrapper_args = tuple([logging_queue, tqdm_queue, operation] + list(args))
+                wrapper_args = tuple([tqdm_queue, operation] + list(args))
                 async_results.append(pool.apply_async(task_wrapper, wrapper_args))
 
             completion_status = [False for _ in async_results]
@@ -79,6 +81,7 @@ class TqdmMultiProcessPool(object):
             while countdown > 0 and not terminate:
                 try:
                     logger_record = logging_queue.get_nowait()
+                    # print(logger_record)
                     getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
                 except (EmptyQueue, InterruptedError):
                     pass
@@ -86,7 +89,10 @@ class TqdmMultiProcessPool(object):
                 try:
                     tqdm_id, tqdm_message = tqdm_queue.get_nowait()
                     process_id, method_name, args, kwargs = tqdm_message
-                    process_id = int(process_id[-1]) - 1
+                    process_id = int(process_id[-1])
+                    if process_id not in tqdms:
+                        tqdms[process_id] = {}
+
                     if method_name == "__init__":
                         tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
                     else:
@@ -107,31 +113,41 @@ class TqdmMultiProcessPool(object):
                         if not task_result:
                             on_error()
 
-            # Clear out remaining message queue
-            try:
-                while True:
-                    logger_record = logging_queue.get_nowait()
-                    getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
-            except (EmptyQueue, InterruptedError):
-                pass
+        if terminate:
+            logger.info('\nSIGINT or CTRL-C detected, killing pool. Please wait.')
 
-            try:
-                while True:
-                    tqdm_id, tqdm_message = tqdm_queue.get_nowait()
-                    process_id, method_name, args, kwargs = tqdm_message
-                    process_id = int(process_id[-1]) - 1
-                    if method_name == "__init__":
-                        tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
-                    else:
-                        getattr(tqdms[process_id][tqdm_id], method_name)(*args, **kwargs)
-            except (EmptyQueue, InterruptedError):
-                pass
+        # Clear out remaining message queues. Sometimes get_nowait returns garbage
+        # without erroring, just catching all exceptions as we don't care that much
+        # about logging messages.
+        try:
+            while True:
+                logger_record = logging_queue.get_nowait()
+                print(logger_record)
+                getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
+        except (EmptyQueue, InterruptedError):
+            pass
+        except Exception as ex:
+            print(ex)
+
+        try:
+            while True:
+                tqdm_record = tqdm_queue.get_nowait()
+                tqdm_id, tqdm_message = tqdm_record
+                process_id, method_name, args, kwargs = tqdm_message
+                process_id = int(process_id[-1])
+                if method_name == "__init__":
+                    tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
+                else:
+                    getattr(tqdms[process_id][tqdm_id], method_name)(*args, **kwargs)
+        except (EmptyQueue, InterruptedError):
+            pass
 
         if terminate:
-            for tqdm_instance in tqdms:
-                if tqdm_instance:
-                    tqdm_instance.close()
-            logger.info('\nSIGINT or CTRL-C detected, killing pool')
+            logger.info('\nTerminating.')            
+            for key, process_tqdms in tqdms.items():
+                for key, tqdm_instance in process_tqdms.items():
+                    if tqdm_instance:
+                        tqdm_instance.close()
             sys.exit(0)
 
         signal.signal(SIGINT, previous_signal_int)
