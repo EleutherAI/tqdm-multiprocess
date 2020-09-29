@@ -86,7 +86,7 @@ class TqdmMultiProcessPool(object):
 
             completion_status = [False for _ in async_results]
             countdown = len(completion_status)
-            task_results = []
+            task_results = [None for _ in async_results]
             while countdown > 0 and not terminate:
                 # Worker Logging
                 try:
@@ -136,7 +136,7 @@ class TqdmMultiProcessPool(object):
                         continue
                     if async_result.ready():
                         task_result = async_result.get()
-                        task_results.append(task_result)
+                        task_results[i] = task_result
                         completion_status[i] = True
                         countdown -= 1
 
