@@ -40,7 +40,7 @@ class GlobalMultiProcessTqdm(MultiProcessTqdm):
 
 def get_multi_tqdm(message_queue, tqdms_list, *args, **kwargs):
     tqdm_id = len(tqdms_list)
-    kwargs["mininterval"] = 1 # Slow it down
+    # kwargs["mininterval"] = 1 # Slow it down
     multi_tqdm = MultiProcessTqdm(message_queue, tqdm_id, *args, **kwargs)
     tqdms_list.append(multi_tqdm)
     return multi_tqdm
@@ -97,6 +97,7 @@ class TqdmMultiProcessPool(object):
 
                 # Worker tqdms
                 try:
+                    count = 0
                     while True:
                         tqdm_id, tqdm_message = tqdm_queue.get_nowait()
                         process_id, method_name, args, kwargs = tqdm_message
@@ -108,15 +109,24 @@ class TqdmMultiProcessPool(object):
                             tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
                         else:
                             getattr(tqdms[process_id][tqdm_id], method_name)(*args, **kwargs)
+
+                        count += 1
+                        if count > 1000:
+                            logger.info("Tqdm worker queue flood.")
                 except (EmptyQueue, InterruptedError):
                     pass
 
                 # Global tqdm
                 try:
+                    count = 0                    
                     while True:
                         tqdm_id, tqdm_message = global_tqdm_queue.get_nowait()
                         process_id, method_name, args, kwargs = tqdm_message
                         getattr(global_tqdm, method_name)(*args, **kwargs)
+
+                        count += 1
+                        if count > 1000:
+                            logger.info("Tqdm global queue flood.")
                 except (EmptyQueue, InterruptedError):
                     pass
 
@@ -132,9 +142,9 @@ class TqdmMultiProcessPool(object):
 
                         # Task failed, do on_error
                         if not task_result:
-                            on_error()
+                            on_error(task_result)
 
-                        on_done()
+                        on_done(task_result)
 
         if terminate:
             logger.info('SIGINT or CTRL-C detected, killing pool. Please wait.')
