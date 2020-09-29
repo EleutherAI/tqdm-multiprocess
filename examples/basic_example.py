@@ -56,7 +56,7 @@ def example():
     process_count = 4
     task_count = 10
     initial_tasks = [(example_multiprocessing_function, (i,)) for i in range(task_count)]    
-    total_iterations = iterations1 * iterations2 * iterations3 * process_count
+    total_iterations = iterations1 * iterations2 * iterations3 * task_count
     with tqdm.tqdm(total=total_iterations, dynamic_ncols=True) as global_progress:
         global_progress.set_description("global")
         results = pool.map(process_count, global_progress, initial_tasks, error_callback, done_callback)
