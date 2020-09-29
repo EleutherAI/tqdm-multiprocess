@@ -1,11 +1,11 @@
 # tqdm-multiprocess
-Using queues, tqdm-multiprocess supports multiple worker processes, each with multiple tqdm progress bars, displaying them cleanly through the main process.  
+Using queues, tqdm-multiprocess supports multiple worker processes, each with multiple tqdm progress bars, displaying them cleanly through the main process. The worker processes also have access to a single global tqdm for aggregate progress monitoring.
 
-It also redirects logging from the subprocesses to the root logger in the main process.
+Logging is also redirected from the subprocesses to the root logger in the main process.
 
-Currently doesn't support tqdm(iterator), you will need to intialize tqdm with a total and update manually.
+Currently doesn't support tqdm(iterator), you will need to intialize your worker tqdms with a total and update manually.
 
-Due to the performance limits of the default Python multiprocess queue you need to update your global and worker process tqdms infrequently to avoid flooding the main process. I will attempt to implement a lock free ringbuffer at some point to address this.
+Due to the performance limits of the default Python multiprocess queue you need to update your global and worker process tqdms infrequently to avoid flooding the main process. I will attempt to implement a lock free ringbuffer at some point to see if things can be improved.
 
 ## Installation
 
@@ -15,11 +15,13 @@ pip install tqdm-multiprocess
 
 ## Usage
 
-*TqdmMultiProcessPool* creates a standard python multiprocessing pool with the desired number of processes. Under the hood it uses async_apply with an event loop to monitor a tqdm and logging queue, allowing the worker processes to redirect both their tqdm objects and logging messages to your main process.
+*TqdmMultiProcessPool* creates a standard python multiprocessing pool with the desired number of processes. Under the hood it uses async_apply with an event loop to monitor a tqdm and logging queue, allowing the worker processes to redirect both their tqdm objects and logging messages to your main process. There is also a queue for the workers to update the single global tqdm.
 
-As shown below, you create a list of tasks containing their function and a tuple with your parameters. The functions you pass in will need an extra "tqdm_func" argument on the end which you must use to initialize your tqdms. As mentioned above, passing iterators into the tqdm function is currently not supported, so set total=total_steps when setting up your tqdm, and then update the progress manually with the update() method. All other arguments to tqdm should work fine.
+As shown below, you create a list of tasks containing their function and a tuple with your parameters. The functions you pass in will need the extra arguments on the end "tqdm_func, global_tqdm". You must use tqdm_func when initializing your tqdms for the redirection to work. As mentioned above, passing iterators into the tqdm function is currently not supported, so set total=total_steps when setting up your tqdm, and then update the progress manually with the update() method. All other arguments to tqdm should work fine.
 
-Once you have your task list, call the map() method on your pool, passing in the process count, task list and error callback function. The error callback will be trigerred if your task functions return anything evaluating as False (if not task_result in the source code).
+Once you have your task list, call the map() method on your pool, passing in the process count, global_tqdm (or None), task list, as well as error and done callback functions. The error callback will be trigerred if your task functions return anything evaluating as False (if not task_result in the source code). The done callback will be called when the task succesfully completes.
+
+The map method returns a list containing the returned results for all your tasks in original order.
 
 ### examples/basic_example.py
 
