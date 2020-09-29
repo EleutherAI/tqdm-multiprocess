@@ -39,5 +39,5 @@ setuptools.setup(
     python_requires='>=3.8',
     extras_require=extras_require,
     packages=['tqdm_multiprocess'] + ['tqdm.' + i for i in setuptools.find_packages('tqdm')],
-    package_data={'tqdm': ['LICENCE', 'examples/*.py','requirements-dev.txt']},
+    package_data={'tqdm_multiprocess': ['LICENCE', 'examples/*.py','requirements-dev.txt']},
 )
