@@ -23,7 +23,7 @@ with io_open(requirements_dev, mode='r') as fd:
 
 setuptools.setup(
     name="tqdm-multiprocess",
-    version="0.0.7",
+    version="0.0.8",
     author="researcher2",
     author_email="2researcher2@gmail.com",
     description="Easy multiprocessing with tqdm and logging redirected to main process.",
@@ -36,7 +36,7 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
 
-    python_requires='>=3.8',
+    python_requires='>=3.6',
     extras_require=extras_require,
     packages=['tqdm_multiprocess'] + ['tqdm.' + i for i in setuptools.find_packages('tqdm')],
     package_data={'tqdm_multiprocess': ['LICENCE', 'examples/*.py','requirements-dev.txt']},
