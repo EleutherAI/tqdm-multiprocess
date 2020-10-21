@@ -21,9 +21,11 @@ with io_open(requirements_dev, mode='r') as fd:
 # with io_open(version_file, mode='r') as fd:
 #     exec(fd.read())
 
+install_requires = ["tqdm", "colorama"]
+
 setuptools.setup(
     name="tqdm-multiprocess",
-    version="0.0.8",
+    version="0.0.9",
     author="researcher2",
     author_email="2researcher2@gmail.com",
     description="Easy multiprocessing with tqdm and logging redirected to main process.",
@@ -38,6 +40,7 @@ setuptools.setup(
 
     python_requires='>=3.6',
     extras_require=extras_require,
+    install_requires=install_requires,
     packages=['tqdm_multiprocess'] + ['tqdm.' + i for i in setuptools.find_packages('tqdm')],
     package_data={'tqdm_multiprocess': ['LICENCE', 'examples/*.py','requirements-dev.txt']},
 )
