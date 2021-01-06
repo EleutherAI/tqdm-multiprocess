@@ -27,7 +27,7 @@ def some_other_function(tqdm_func, global_tqdm):
                     with tqdm_func(total=iterations1, dynamic_ncols=True) as progress1:
                         for j in range(iterations1):
                             # logger.info("inner") # Spam slows down tqdm too much
-                            progress1.set_description("innert")
+                            progress1.set_description("inner")
                             sleep(0.01)
                             progress1.update()
                             progress2.update()
@@ -52,14 +52,15 @@ def done_callback(result):
     print("Done. Result: ", result)
 
 def example():
-    pool = TqdmMultiProcessPool()
-    process_count = 4
+    process_count = 4    
+    pool = TqdmMultiProcessPool(process_count)
+
     task_count = 10
     initial_tasks = [(example_multiprocessing_function, (i,)) for i in range(task_count)]    
     total_iterations = iterations1 * iterations2 * iterations3 * task_count
     with tqdm.tqdm(total=total_iterations, dynamic_ncols=True) as global_progress:
         global_progress.set_description("global")
-        results = pool.map(process_count, global_progress, initial_tasks, error_callback, done_callback)
+        results = pool.map(global_progress, initial_tasks, error_callback, done_callback)
         print(results)
 
 if __name__ == '__main__':

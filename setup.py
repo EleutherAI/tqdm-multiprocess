@@ -25,7 +25,7 @@ install_requires = ["tqdm", "colorama"]
 
 setuptools.setup(
     name="tqdm-multiprocess",
-    version="0.0.9",
+    version="0.0.11",
     author="researcher2",
     author_email="2researcher2@gmail.com",
     description="Easy multiprocessing with tqdm and logging redirected to main process.",

@@ -64,97 +64,98 @@ def task_wrapper(tqdm_queue, global_tqdm_queue, operation, *args):
     return operation(*args, tqdm_partial, global_tqdm)
 
 class TqdmMultiProcessPool(object):
-    def __init__(self):
-        pass
+    def __init__(self, process_count):
+        self.mp_manager = multiprocessing.Manager()
+        self.logging_queue = self.mp_manager.Queue()
+        self.tqdm_queue = self.mp_manager.Queue()
+        self.global_tqdm_queue = self.mp_manager.Queue()
+        self.process_count = process_count
+        worker_init_function = partial(init_worker, self.logging_queue)        
+        self.mp_pool = multiprocessing.Pool(self.process_count, worker_init_function)
 
-    def map(self, process_count, global_tqdm, initial_tasks, on_error, on_done):
-        previous_signal_int = signal.signal(SIGINT, handler)
+    def map(self, global_tqdm, tasks, on_error, on_done):
 
-        m = multiprocessing.Manager()
-        logging_queue = m.Queue()
-        tqdm_queue = m.Queue()
-        global_tqdm_queue = m.Queue()
+        self.previous_signal_int = signal.signal(SIGINT, handler)
 
-        worker_init_function = partial(init_worker, logging_queue)
-        with multiprocessing.Pool(process_count, worker_init_function) as pool:
-            tqdms = {} # {} for _ in range(process_count)]
+        tqdms = {} # {} for _ in range(process_count)]
 
-            async_results = []
-            for operation, args in initial_tasks:
-                wrapper_args = tuple([tqdm_queue, global_tqdm_queue, operation] + list(args))
-                async_results.append(pool.apply_async(task_wrapper, wrapper_args))
+        async_results = []
+        for operation, args in tasks:
+            wrapper_args = tuple([self.tqdm_queue, self.global_tqdm_queue, operation] + list(args))
+            async_results.append(self.mp_pool.apply_async(task_wrapper, wrapper_args))
 
-            completion_status = [False for _ in async_results]
-            countdown = len(completion_status)
-            task_results = [None for _ in async_results]
-            while countdown > 0 and not terminate:
-                # Worker Logging
-                try:
-                    logger_record = logging_queue.get_nowait()
-                    getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
-                except (EmptyQueue, InterruptedError):
-                    pass
+        completion_status = [False for _ in async_results]
+        countdown = len(completion_status)
+        task_results = [None for _ in async_results]
+        while countdown > 0 and not terminate:
+            # Worker Logging
+            try:
+                logger_record = self.logging_queue.get_nowait()
+                getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
+            except (EmptyQueue, InterruptedError):
+                pass
 
-                # Worker tqdms
-                try:
-                    count = 0
-                    while True:
-                        tqdm_id, tqdm_message = tqdm_queue.get_nowait()
-                        process_id, method_name, args, kwargs = tqdm_message
-                        process_id = int(process_id[-1])
-                        if process_id not in tqdms:
-                            tqdms[process_id] = {}
+            # Worker tqdms
+            try:
+                count = 0
+                while True:
+                    tqdm_id, tqdm_message = self.tqdm_queue.get_nowait()
+                    process_id, method_name, args, kwargs = tqdm_message
+                    process_id = int(process_id[-1])
+                    if process_id not in tqdms:
+                        tqdms[process_id] = {}
 
-                        if method_name == "__init__":
-                            tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
-                        else:
-                            getattr(tqdms[process_id][tqdm_id], method_name)(*args, **kwargs)
+                    if method_name == "__init__":
+                        tqdms[process_id][tqdm_id] = tqdm.tqdm(*args, **kwargs)
+                    else:
+                        getattr(tqdms[process_id][tqdm_id], method_name)(*args, **kwargs)
 
-                        count += 1
-                        if count > 1000:
-                            logger.info("Tqdm worker queue flood.")
-                except (EmptyQueue, InterruptedError):
-                    pass
+                    count += 1
+                    if count > 1000:
+                        logger.info("Tqdm worker queue flood.")
+            except (EmptyQueue, InterruptedError):
+                pass
 
-                # Global tqdm
-                try:
-                    count = 0                    
-                    while True:
-                        tqdm_id, tqdm_message = global_tqdm_queue.get_nowait()
-                        process_id, method_name, args, kwargs = tqdm_message
-                        getattr(global_tqdm, method_name)(*args, **kwargs)
+            # Global tqdm
+            try:
+                count = 0                    
+                while True:
+                    tqdm_id, tqdm_message = self.global_tqdm_queue.get_nowait()
+                    process_id, method_name, args, kwargs = tqdm_message
+                    getattr(global_tqdm, method_name)(*args, **kwargs)
 
-                        count += 1
-                        if count > 1000:
-                            logger.info("Tqdm global queue flood.")
-                except (EmptyQueue, InterruptedError):
-                    pass
+                    count += 1
+                    if count > 1000:
+                        logger.info("Tqdm global queue flood.")
+            except (EmptyQueue, InterruptedError):
+                pass
 
-                # Task Completion
-                for i, async_result in enumerate(async_results):
-                    if completion_status[i]:
-                        continue
-                    if async_result.ready():
-                        task_result = async_result.get()
-                        task_results[i] = task_result
-                        completion_status[i] = True
-                        countdown -= 1
+            # Task Completion
+            for i, async_result in enumerate(async_results):
+                if completion_status[i]:
+                    continue
+                if async_result.ready():
+                    task_result = async_result.get()
+                    task_results[i] = task_result
+                    completion_status[i] = True
+                    countdown -= 1
 
-                        # Task failed, do on_error
-                        if not task_result:
-                            on_error(task_result)
+                    # Task failed, do on_error
+                    if not task_result:
+                        on_error(task_result)
 
-                        on_done(task_result)
+                    on_done(task_result)
 
         if terminate:
-            logger.info('SIGINT or CTRL-C detected, killing pool. Please wait.')
+            logger.info('SIGINT or CTRL-C detected, closing pool. Please wait.')
+            self.mp_pool.close()
 
         # Clear out remaining message queues. Sometimes get_nowait returns garbage
         # without erroring, just catching all exceptions as we don't care that much
         # about logging messages.
         try:
             while True:
-                logger_record = logging_queue.get_nowait()
+                logger_record = self.logging_queue.get_nowait()
                 getattr(logger, logger_record.levelname.lower())(logger_record.getMessage())
         except (EmptyQueue, InterruptedError):
             pass
@@ -163,7 +164,7 @@ class TqdmMultiProcessPool(object):
 
         try:
             while True:
-                tqdm_id, tqdm_message = global_tqdm_queue.get_nowait()
+                tqdm_id, tqdm_message = self.global_tqdm_queue.get_nowait()
                 process_id, method_name, args, kwargs = tqdm_message
                 getattr(global_tqdm, method_name)(*args, **kwargs)
         except (EmptyQueue, InterruptedError):
@@ -171,7 +172,7 @@ class TqdmMultiProcessPool(object):
 
         try:
             while True:
-                tqdm_record = tqdm_queue.get_nowait()
+                tqdm_record = self.tqdm_queue.get_nowait()
                 tqdm_id, tqdm_message = tqdm_record
                 process_id, method_name, args, kwargs = tqdm_message
                 process_id = int(process_id[-1])
@@ -188,8 +189,8 @@ class TqdmMultiProcessPool(object):
                 for key, tqdm_instance in process_tqdms.items():
                     if tqdm_instance:
                         tqdm_instance.close()
-            sys.exit(0)
+            sys.exit(0) # Will trigger __exit__
 
-        signal.signal(SIGINT, previous_signal_int)
+        signal.signal(SIGINT, self.previous_signal_int)
 
         return task_results
